@@ -738,11 +738,11 @@ router.get('/follow-status/:id', authenticateToken, validateParams(userIdSchema)
     .select('follower_id')
     .eq('follower_id', followerId)
     .eq('following_id', userId)
-    .single();
+    .maybeSingle();
 
   console.log('Follow status query result:', { followStatus, error });
 
-  if (error && error.code !== 'PGRST116') {
+  if (error) {
     console.log('Database error:', error);
     res.status(500).json({
       success: false,

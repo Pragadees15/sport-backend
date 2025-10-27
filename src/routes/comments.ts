@@ -3,6 +3,7 @@ import { supabase, supabaseAdmin } from '../config/supabase';
 import { authenticateToken, optionalAuthMiddleware } from '../middleware/auth';
 import { validate, validateQuery, validateParams } from '../middleware/validation';
 import { asyncHandler } from '../middleware/errorHandler';
+import { moderateContent } from '../middleware/contentModeration';
 import Joi from 'joi';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -170,7 +171,7 @@ router.get('/:id', optionalAuthMiddleware, validateParams(commentIdSchema), asyn
 }));
 
 // Create new comment
-router.post('/', authenticateToken, validate(createCommentSchema), asyncHandler(async (req: Request, res: Response): Promise<void> => {
+router.post('/', authenticateToken, validate(createCommentSchema), moderateContent, asyncHandler(async (req: Request, res: Response): Promise<void> => {
   const { postId, content, parentId } = req.body;
 
   // Check if post exists
@@ -295,7 +296,7 @@ router.post('/', authenticateToken, validate(createCommentSchema), asyncHandler(
 }));
 
 // Update comment
-router.put('/:id', authenticateToken, validateParams(commentIdSchema), validate(updateCommentSchema), asyncHandler(async (req: Request, res: Response): Promise<void> => {
+router.put('/:id', authenticateToken, validateParams(commentIdSchema), validate(updateCommentSchema), moderateContent, asyncHandler(async (req: Request, res: Response): Promise<void> => {
   const { id } = req.params;
   const { content } = req.body;
 

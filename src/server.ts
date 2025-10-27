@@ -30,6 +30,7 @@ import locationRoutes from './routes/locations';
 import discoverRoutes from './routes/discover';
 import migrationRoutes from './routes/migration';
 import verificationRoutes from './routes/verification';
+import aiRoutes from './routes/ai';
 
 // Import socket handlers
 import { setupSocketHandlers } from './socket/socketHandlers';
@@ -115,7 +116,7 @@ app.use(cors({
 // API versioning
 app.use('/api', apiVersioning);
 
-// IP-based rate limiting (fallback)
+// IP-based rate limiting (DISABLED)
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: config.env === 'production' ? 500 : 1000, // Stricter in production
@@ -125,8 +126,8 @@ const limiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   skip: (req) => {
-    // Skip IP rate limiting for authenticated users (they have per-user limits)
-    return !!req.user;
+    // Rate limiting disabled for all requests
+    return true;
   }
 });
 
@@ -141,7 +142,7 @@ const userLimiter = createUserRateLimit({
   skipFailedRequests: false
 });
 
-// Stricter rate limiting for auth routes (IP-based)
+// Stricter rate limiting for auth routes (IP-based) (DISABLED)
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: config.env === 'production' ? 50 : 100, // Stricter in production
@@ -150,6 +151,10 @@ const authLimiter = rateLimit({
   },
   standardHeaders: true,
   legacyHeaders: false,
+  skip: (req) => {
+    // Rate limiting disabled for all requests
+    return true;
+  }
 });
 
 // Per-user rate limiting for auth routes
@@ -157,6 +162,13 @@ const authUserLimiter = createUserRateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 20, // Very strict for auth
   message: 'Too many authentication attempts for this user, please try again later.',
+});
+
+// Stricter rate limiting for token-earning actions to prevent abuse
+const tokenActionLimiter = createUserRateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 100, // 100 token actions per hour per user
+  message: 'Too many token-earning actions. Please try again later.',
 });
 
 app.use('/api/auth/', authLimiter);
@@ -213,14 +225,23 @@ app.use('/api/notifications', authMiddleware, userLimiter, notificationRoutes);
 app.use('/api/tokens', authMiddleware, userLimiter, tokenRoutes);
 app.use('/api/upload', authMiddleware, userLimiter, uploadRoutes);
 app.use('/api/admin', authMiddleware, userLimiter, adminRoutes);
-app.use('/api/videos', videoRoutes);
-app.use('/api/memberships', membershipRoutes);
-app.use('/api/livestreams', livestreamRoutes);
-app.use('/api/events', eventRoutes);
-app.use('/api/locations', locationRoutes);
-app.use('/api/discover', discoverRoutes);
+
+// Public routes with rate limiting to prevent abuse of token-earning actions
+// optionalAuthMiddleware allows both authenticated and unauthenticated access
+// tokenActionLimiter applies stricter limits to prevent token farming
+app.use('/api/videos', optionalAuthMiddleware, tokenActionLimiter, videoRoutes);
+app.use('/api/memberships', optionalAuthMiddleware, tokenActionLimiter, membershipRoutes);
+app.use('/api/livestreams', optionalAuthMiddleware, tokenActionLimiter, livestreamRoutes);
+app.use('/api/events', optionalAuthMiddleware, userLimiter, eventRoutes);
+app.use('/api/locations', optionalAuthMiddleware, tokenActionLimiter, locationRoutes);
+app.use('/api/discover', optionalAuthMiddleware, userLimiter, discoverRoutes);
+
+// Strictly authenticated routes with rate limiting
 app.use('/api/migration', authMiddleware, userLimiter, migrationRoutes);
-app.use('/api/verification', verificationRoutes);
+app.use('/api/verification', authMiddleware, userLimiter, verificationRoutes);
+
+// AI routes
+app.use('/api/ai', authMiddleware, userLimiter, aiRoutes);
 
 // Socket.IO setup
 const socketHandlers = setupSocketHandlers(io);

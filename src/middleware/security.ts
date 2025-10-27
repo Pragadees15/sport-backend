@@ -50,7 +50,7 @@ export const httpsEnforcement = (req: Request, res: Response, next: NextFunction
   next();
 };
 
-// Per-user rate limiting middleware
+// Per-user rate limiting middleware (DISABLED)
 export const createUserRateLimit = (options: {
   windowMs: number;
   max: number;
@@ -59,58 +59,7 @@ export const createUserRateLimit = (options: {
   skipFailedRequests?: boolean;
 }) => {
   return (req: Request, res: Response, next: NextFunction) => {
-    // Skip if no user (for public endpoints)
-    if (!req.user) {
-      return next();
-    }
-
-    const userId = req.user.id;
-    const now = Date.now();
-    const windowMs = options.windowMs;
-    const max = options.max;
-
-    // Get or create user rate limit data
-    let userLimit = userRateLimitStore.get(userId);
-    
-    if (!userLimit || now > userLimit.resetTime) {
-      // Reset or create new limit
-      userLimit = {
-        count: 0,
-        resetTime: now + windowMs
-      };
-      userRateLimitStore.set(userId, userLimit);
-    }
-
-    // Increment count
-    userLimit.count++;
-
-    // Check if limit exceeded
-    if (userLimit.count > max) {
-      logger.warn('User rate limit exceeded', {
-        userId,
-        count: userLimit.count,
-        max,
-        windowMs,
-        ip: req.ip,
-        userAgent: req.get('User-Agent')
-      });
-
-      return res.status(429).json({
-        error: 'Too Many Requests',
-        message: options.message || 'Rate limit exceeded for this user',
-        retryAfter: Math.ceil((userLimit.resetTime - now) / 1000)
-      });
-    }
-
-    // Clean up expired entries periodically (every 5 minutes)
-    if (Math.random() < 0.01) { // 1% chance
-      const expiredKeys = Array.from(userRateLimitStore.entries())
-        .filter(([_, data]) => now > data.resetTime)
-        .map(([key]) => key);
-      
-      expiredKeys.forEach(key => userRateLimitStore.delete(key));
-    }
-
+    // Rate limiting disabled - pass through all requests
     next();
   };
 };

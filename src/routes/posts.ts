@@ -3,6 +3,7 @@ import { supabase, supabaseAdmin } from '../config/supabase';
 import { authenticateToken, optionalAuthMiddleware } from '../middleware/auth';
 import { validate, validateQuery, validateParams } from '../middleware/validation';
 import { asyncHandler } from '../middleware/errorHandler';
+import { moderateContent } from '../middleware/contentModeration';
 import Joi from 'joi';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -280,7 +281,7 @@ router.get('/:id', optionalAuthMiddleware, validateParams(postIdSchema), asyncHa
 }));
 
 // Create new post
-router.post('/', authenticateToken, validate(createPostSchema), asyncHandler(async (req: Request, res: Response): Promise<void> => {
+router.post('/', authenticateToken, validate(createPostSchema), moderateContent, asyncHandler(async (req: Request, res: Response): Promise<void> => {
   const {
     content,
     mediaUrls
@@ -341,7 +342,7 @@ router.post('/', authenticateToken, validate(createPostSchema), asyncHandler(asy
 }));
 
 // Update post
-router.put('/:id', authenticateToken, validateParams(postIdSchema), validate(updatePostSchema), asyncHandler(async (req: Request, res: Response): Promise<void> => {
+router.put('/:id', authenticateToken, validateParams(postIdSchema), validate(updatePostSchema), moderateContent, asyncHandler(async (req: Request, res: Response): Promise<void> => {
   const { id } = req.params;
   const updates = {
     ...req.body,
