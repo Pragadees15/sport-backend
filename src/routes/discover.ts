@@ -219,6 +219,8 @@ router.get('/trending', optionalAuthMiddleware, validateQuery(trendingQuerySchem
           )
         `)
         .eq('is_private', false)
+        .not('username', 'is', null)  // ✅ Filter out incomplete profiles
+        .not('role', 'is', null)      // ✅ Filter out incomplete profiles
         .limit(limit * 2); // Get more to filter and sort
 
       // Exclude current user from trending results
@@ -500,6 +502,8 @@ function buildUsersQuery(search: string, sportsCategory: string, location: strin
       followers:user_following!following_id(count)
     `, { count: 'exact' })
     .eq('is_private', false)
+    .not('username', 'is', null)  // ✅ Filter out users without username (incomplete profile)
+    .not('role', 'is', null)      // ✅ Filter out users without role (incomplete profile)
     .range(offset, offset + limit - 1);
 
   // Exclude current user from results

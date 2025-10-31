@@ -830,210 +830,90 @@ router.post('/award', authenticateToken, asyncHandler(async (req: AuthenticatedR
 // Get referral code for user
 router.get('/referral-code', authenticateToken, asyncHandler(async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   const userId = req.user!.id;
-  const referralCode = `SPORT${userId.slice(-4).toUpperCase()}`;
   
-  res.json({
-    success: true,
-    referralCode,
-    referralLink: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/signup?ref=${referralCode}`
-  });
-}));
+  // Get the referral code from the database
+  const { data: referralCodeData, error } = await supabase
+    .from('referral_codes')
+    .select('code, uses_count, is_active')
+    .eq('user_id', userId)
+    .single();
 
-// Process referral signup
-router.post('/referral-signup', asyncHandler(async (req: Request, res: Response): Promise<void> => {
-  const { referralCode, newUserId } = req.body as any;
-
-  if (!referralCode || !newUserId) {
-    res.status(400).json({
-      success: false,
-      error: 'Referral code and user ID required'
-    });
-    return;
-  }
-
-  try {
-    // Extract user ID from referral code
-    const codeMatch = referralCode.match(/^SPORT(.+)$/);
-    if (!codeMatch) {
-      res.status(400).json({
-        success: false,
-        error: 'Invalid referral code format'
-      });
-      return;
-    }
-
-    const referrerId = codeMatch[1]?.toLowerCase() || '';
-    const fullReferrerId = `00000000-0000-0000-0000-${referrerId.padStart(12, '0')}`;
-
-    // Check if referrer exists
-    const { data: referrer, error: referrerError } = await supabase
-      .from('users')
-      .select('id, name, tokens')
-      .eq('id', fullReferrerId)
-      .single();
-
-    if (referrerError || !referrer) {
-      res.status(404).json({
-        success: false,
-        error: 'Referrer not found'
-      });
-      return;
-    }
-
-    // Check if user has already been referred
-    const { data: existingReferral } = await supabase
-      .from('token_transactions')
-      .select('id')
-      .eq('to_user_id', newUserId)
-      .eq('type', 'referral_signup')
-      .single();
-
-    if (existingReferral) {
-      res.status(400).json({
-        success: false,
-        error: 'User has already been referred'
-      });
-      return;
-    }
-
-    const referralReward = 50;
-    const newUserReward = 50;
-
-    // Award tokens to referrer
-    const { error: referrerUpdateError } = await supabase
-      .from('users')
-      .update({ tokens: referrer.tokens + referralReward })
-      .eq('id', referrer.id);
-
-    if (referrerUpdateError) {
-      throw new Error('Failed to award referrer tokens');
-    }
-
-    // Update referrer's user_tokens
-    const { error: referrerTokensError } = await supabase
-      .from('user_tokens')
-      .upsert({
-        user_id: referrer.id,
-        balance: referrer.tokens + referralReward,
-        total_earned: referrer.tokens + referralReward,
-        updated_at: new Date().toISOString()
-      });
-
-    if (referrerTokensError) {
-      throw new Error('Failed to update referrer token stats');
-    }
-
-    // Award tokens to new user
-    const { data: newUserTokens, error: newUserTokensError } = await supabase
-      .from('user_tokens')
-      .select('balance, total_earned')
-      .eq('user_id', newUserId)
-      .single();
-
-    const currentBalance = newUserTokens?.balance || 0;
-    const currentTotalEarned = newUserTokens?.total_earned || 0;
-
-    const { error: newUserUpdateError } = await supabase
-      .from('users')
-      .update({ tokens: currentBalance + newUserReward })
-      .eq('id', newUserId);
-
-    if (newUserUpdateError) {
-      throw new Error('Failed to award new user tokens');
-    }
-
-    const { error: newUserTokensUpdateError } = await supabase
-      .from('user_tokens')
-      .upsert({
-        user_id: newUserId,
-        balance: currentBalance + newUserReward,
-        total_earned: currentTotalEarned + newUserReward,
-        updated_at: new Date().toISOString()
-      });
-
-    if (newUserTokensUpdateError) {
-      throw new Error('Failed to update new user token stats');
-    }
-
-    // Record transactions
-    const { data: referrerTransaction, error: referrerTransactionError } = await supabase
-      .from('token_transactions')
+  if (error || !referralCodeData) {
+    // If no code exists, create one automatically
+    const newCode = `SPORT${userId.slice(-8).toUpperCase()}`;
+    
+    const { data: newReferralCode, error: insertError } = await supabase
+      .from('referral_codes')
       .insert({
-        to_user_id: referrer.id,
-        amount: referralReward,
-        type: 'referral',
-        description: `Referral reward for ${newUserId}`,
+        code: newCode,
+        user_id: userId,
+        uses_count: 0,
+        is_active: true,
         created_at: new Date().toISOString()
       })
       .select()
       .single();
 
-    if (referrerTransactionError) {
-      throw new Error('Failed to record referrer transaction');
+    if (insertError) {
+      res.status(500).json({
+        success: false,
+        error: 'Failed to create referral code'
+      });
+      return;
     }
-
-    const { data: newUserTransaction, error: newUserTransactionError } = await supabase
-      .from('token_transactions')
-      .insert({
-        to_user_id: newUserId,
-        amount: newUserReward,
-        type: 'referral_signup',
-        description: `Welcome bonus for signing up with referral code`,
-        created_at: new Date().toISOString()
-      })
-      .select()
-      .single();
-
-    if (newUserTransactionError) {
-      throw new Error('Failed to record new user transaction');
-    }
-
-    // Create notifications
-    await supabase
-      .from('notifications')
-      .insert([
-        {
-          user_id: referrer.id,
-          type: 'system',
-          title: 'Referral Successful!',
-          message: `You earned ${referralReward} tokens from a successful referral!`,
-          data: { amount: referralReward, newUserId },
-          created_at: new Date().toISOString()
-        },
-        {
-          user_id: newUserId,
-          type: 'system',
-          title: 'Welcome Bonus!',
-          message: `You received ${newUserReward} tokens for signing up with a referral code!`,
-          data: { amount: newUserReward },
-          created_at: new Date().toISOString()
-        }
-      ]);
 
     res.json({
       success: true,
-      message: 'Referral processed successfully',
-      referrerReward: referralReward,
-      newUserReward: newUserReward
+      referralCode: newReferralCode.code,
+      referralLink: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/signup?ref=${newReferralCode.code}`,
+      usesCount: 0
     });
-
-  } catch (error: any) {
-    res.status(400).json({
-      success: false,
-      error: error.message || 'Referral processing failed'
-    });
+    return;
   }
+  
+  res.json({
+    success: true,
+    referralCode: referralCodeData.code,
+    referralLink: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/signup?ref=${referralCodeData.code}`,
+    usesCount: referralCodeData.uses_count
+  });
+}));
+
+// Process referral signup (deprecated - now handled in auth registration)
+// Kept for backward compatibility
+router.post('/referral-signup', asyncHandler(async (req: Request, res: Response): Promise<void> => {
+  res.status(400).json({
+    success: false,
+    error: 'Referral processing is now handled automatically during registration. Please use the referral code during signup.'
+  });
 }));
 
 // Get referral statistics
 router.get('/referral-stats', authenticateToken, asyncHandler(async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   const userId = req.user!.id;
 
+  // Get referral code info
+  const { data: referralCode } = await supabase
+    .from('referral_codes')
+    .select('code, uses_count')
+    .eq('user_id', userId)
+    .single();
+
+  // Get referral transactions
   const { data: referrals, error } = await supabase
     .from('token_transactions')
-    .select('amount, created_at')
+    .select(`
+      amount, 
+      created_at,
+      description,
+      to_user:users!to_user_id(
+        name,
+        avatar_url
+      )
+    `)
     .eq('to_user_id', userId)
-    .eq('type', 'referral');
+    .eq('type', 'referral')
+    .order('created_at', { ascending: false });
 
   if (error) {
     res.status(400).json({
@@ -1043,7 +923,7 @@ router.get('/referral-stats', authenticateToken, asyncHandler(async (req: Authen
     return;
   }
 
-  const totalReferrals = referrals?.length || 0;
+  const totalReferrals = referralCode?.uses_count || 0;
   const totalEarned = referrals?.reduce((sum, ref) => sum + ref.amount, 0) || 0;
 
   res.json({
@@ -1051,7 +931,8 @@ router.get('/referral-stats', authenticateToken, asyncHandler(async (req: Authen
     stats: {
       totalReferrals,
       totalEarned,
-      referrals: referrals || []
+      referrals: referrals || [],
+      referralCode: referralCode?.code || null
     }
   });
 }));

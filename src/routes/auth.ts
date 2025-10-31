@@ -24,7 +24,8 @@ const registerSchema = Joi.object({
     phone: Joi.string().required(),
     relationship: Joi.string().required()
   }),
-  sportRoles: Joi.array().items(Joi.string())
+  sportRoles: Joi.array().items(Joi.string()),
+  referralCode: Joi.string().optional()
 });
 
 const loginSchema = Joi.object({
@@ -72,7 +73,8 @@ router.post('/register', validate(registerSchema), asyncHandler(async (req: Requ
     sportsCategories,
     accessibilityNeeds,
     emergencyContact,
-    sportRoles
+    sportRoles,
+    referralCode
   } = req.body;
 
   // Check if user already exists
@@ -90,6 +92,27 @@ router.post('/register', validate(registerSchema), asyncHandler(async (req: Requ
     return;
   }
 
+  // Validate referral code if provided
+  let referrerUserId: string | null = null;
+  if (referralCode) {
+    const { data: referralData, error: referralError } = await supabaseAdmin
+      .from('referral_codes')
+      .select('user_id, is_active, uses_count')
+      .eq('code', referralCode)
+      .eq('is_active', true)
+      .single();
+
+    if (referralError || !referralData) {
+      res.status(400).json({
+        success: false,
+        error: 'Invalid or inactive referral code'
+      });
+      return;
+    }
+
+    referrerUserId = referralData.user_id;
+  }
+
   // Create user in Supabase Auth
   const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
     email,
@@ -104,6 +127,8 @@ router.post('/register', validate(registerSchema), asyncHandler(async (req: Requ
     });
     return;
   }
+
+  const newUserId = authData.user.id;
 
   // Wait a moment for the trigger to create the user profile
   await new Promise(resolve => setTimeout(resolve, 1000));
@@ -124,14 +149,14 @@ router.post('/register', validate(registerSchema), asyncHandler(async (req: Requ
       sport_roles: sportRoles,
       updated_at: new Date().toISOString()
     })
-    .eq('id', authData.user.id)
+    .eq('id', newUserId)
     .select()
     .single();
 
   if (profileError) {
     console.error('Profile update error:', profileError);
     // Clean up auth user if profile update fails
-    await supabaseAdmin.auth.admin.deleteUser(authData.user.id);
+    await supabaseAdmin.auth.admin.deleteUser(newUserId);
     res.status(400).json({
        success: false,
        error: 'Failed to update user profile'
@@ -139,7 +164,91 @@ router.post('/register', validate(registerSchema), asyncHandler(async (req: Requ
      return;
   }
 
-  // User tokens are automatically initialized by the trigger
+  // Process referral rewards if referral code was provided
+  if (referrerUserId) {
+    try {
+      const referralReward = 50;
+      const newUserReward = 50;
+
+      // Get referrer's current balance
+      const { data: referrerTokens } = await supabaseAdmin
+        .from('user_tokens')
+        .select('balance, total_earned')
+        .eq('user_id', referrerUserId)
+        .single();
+
+      const referrerBalance = referrerTokens?.balance || 100;
+      const referrerTotalEarned = referrerTokens?.total_earned || 100;
+
+      // Get new user's current balance
+      const { data: newUserTokens } = await supabaseAdmin
+        .from('user_tokens')
+        .select('balance, total_earned')
+        .eq('user_id', newUserId)
+        .single();
+
+      const newUserBalance = newUserTokens?.balance || 100;
+      const newUserTotalEarned = newUserTokens?.total_earned || 100;
+
+      // Award tokens to referrer using add_user_tokens function
+      await supabaseAdmin.rpc('add_user_tokens', {
+        user_id_param: referrerUserId,
+        amount_param: referralReward
+      });
+
+      // Award tokens to new user using add_user_tokens function
+      await supabaseAdmin.rpc('add_user_tokens', {
+        user_id_param: newUserId,
+        amount_param: newUserReward
+      });
+
+      // Increment referral code usage
+      await supabaseAdmin.rpc('increment_referral_uses', {
+        referral_code_param: referralCode
+      });
+
+      // Record transactions
+      await supabaseAdmin.from('token_transactions').insert([
+        {
+          to_user_id: referrerUserId,
+          amount: referralReward,
+          type: 'referral',
+          description: `Referral reward: ${name} signed up using your code`,
+          created_at: new Date().toISOString()
+        },
+        {
+          to_user_id: newUserId,
+          amount: newUserReward,
+          type: 'referral_signup',
+          description: `Welcome bonus for signing up with referral code ${referralCode}`,
+          created_at: new Date().toISOString()
+        }
+      ]);
+
+      // Create notifications
+      await supabaseAdmin.from('notifications').insert([
+        {
+          user_id: referrerUserId,
+          type: 'system',
+          title: 'Referral Successful!',
+          message: `🎉 ${name} signed up using your referral code! You earned ${referralReward} tokens.`,
+          data: { amount: referralReward, newUserId },
+          created_at: new Date().toISOString()
+        },
+        {
+          user_id: newUserId,
+          type: 'system',
+          title: 'Welcome Bonus!',
+          message: `Welcome to SportsFeed! You received ${newUserReward} tokens for signing up with a referral code.`,
+          data: { amount: newUserReward, referralCode },
+          created_at: new Date().toISOString()
+        }
+      ]);
+    } catch (referralError) {
+      console.error('Referral processing error:', referralError);
+      // Don't fail registration if referral processing fails
+    }
+  }
 
   res.status(201).json({
     success: true,

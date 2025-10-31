@@ -80,6 +80,8 @@ router.get('/', validateQuery(getUsersQuerySchema), asyncHandler(async (req: Req
       following:user_following!follower_id(count)
     `, { count: 'exact' })
     .eq('is_private', false)
+    .not('username', 'is', null)  // ✅ Filter out incomplete profiles
+    .not('role', 'is', null)      // ✅ Filter out incomplete profiles
     .range(offset, offset + limit - 1)
     .order('created_at', { ascending: false });
 

@@ -148,6 +148,8 @@ router.post('/single', authenticateToken, upload.single('file'), asyncHandler(as
         folder: `sportsfeed/${folder}`,
         public_id: fileName,
         resource_type: fileType === 'video' ? 'video' : fileType === 'document' ? 'raw' : 'image',
+        // Use eager_async for faster image uploads - transformations happen in background
+        eager_async: fileType === 'image',
         tags: tags ? tags.split(',').map((tag: string) => tag.trim()) : [],
         context: {
           user_id: req.user!.id,
@@ -368,6 +370,12 @@ router.post('/avatar', authenticateToken, upload.single('avatar'), asyncHandler(
         folder: 'sportsfeed/avatars',
         public_id: fileName,
         resource_type: 'image',
+        // Use eager_async for faster uploads - transformations happen in background
+        eager_async: true,
+        eager: [
+          { width: 400, height: 400, crop: 'fill', gravity: 'face', quality: 'auto', fetch_format: 'auto' }
+        ],
+        // Store the base transformation parameters
         transformation: [
           { width: 400, height: 400, crop: 'fill', gravity: 'face' },
           { quality: 'auto', fetch_format: 'auto' }
