@@ -4,6 +4,8 @@ import { authenticateToken, optionalAuthMiddleware } from '../middleware/auth';
 import { validate, validateQuery, validateParams } from '../middleware/validation';
 import { asyncHandler } from '../middleware/errorHandler';
 import { moderateContent } from '../middleware/contentModeration';
+import { handlePostCreationGamification, handleLikeGamification } from '../services/gamificationService';
+import { logger } from '../utils/logger';
 import Joi from 'joi';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -334,6 +336,11 @@ router.post('/', authenticateToken, validate(createPostSchema), moderateContent,
     amount_param: 10
   });
 
+  // Handle gamification (XP, achievements, quests)
+  handlePostCreationGamification(req.user!.id, postId).catch(err => {
+    logger.error('Gamification error on post creation', { error: err, userId: req.user!.id, postId });
+  });
+
   res.status(201).json({
     success: true,
     message: 'Post created successfully',
@@ -573,6 +580,13 @@ router.post('/:id/like', authenticateToken, validateParams(postIdSchema), asyncH
       user_id_param: userId,
       amount_param: 1
     });
+
+    // Handle gamification (XP, achievements, quests)
+    if (postId) {
+      handleLikeGamification(userId, postId).catch(err => {
+        logger.error('Gamification error on like', { error: err, userId, postId });
+      });
+    }
 
     res.json({
       success: true,

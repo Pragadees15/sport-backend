@@ -31,6 +31,7 @@ import discoverRoutes from './routes/discover';
 import migrationRoutes from './routes/migration';
 import verificationRoutes from './routes/verification';
 import aiRoutes from './routes/ai';
+import gamificationRoutes from './routes/gamification';
 
 // Import socket handlers
 import { setupSocketHandlers } from './socket/socketHandlers';
@@ -242,6 +243,9 @@ app.use('/api/verification', authMiddleware, userLimiter, verificationRoutes);
 
 // AI routes
 app.use('/api/ai', authMiddleware, userLimiter, aiRoutes);
+
+// Gamification routes
+app.use('/api/gamification', authMiddleware, userLimiter, gamificationRoutes);
 
 // Socket.IO setup
 const socketHandlers = setupSocketHandlers(io);

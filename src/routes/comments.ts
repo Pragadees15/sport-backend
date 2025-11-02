@@ -4,6 +4,8 @@ import { authenticateToken, optionalAuthMiddleware } from '../middleware/auth';
 import { validate, validateQuery, validateParams } from '../middleware/validation';
 import { asyncHandler } from '../middleware/errorHandler';
 import { moderateContent } from '../middleware/contentModeration';
+import { handleCommentCreationGamification } from '../services/gamificationService';
+import { logger } from '../utils/logger';
 import Joi from 'joi';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -249,6 +251,11 @@ router.post('/', authenticateToken, validate(createCommentSchema), moderateConte
     });
     return;
   }
+
+  // Handle gamification (XP, achievements, quests)
+  handleCommentCreationGamification(req.user!.id, commentId).catch(err => {
+    logger.error('Gamification error on comment creation', { error: err, userId: req.user!.id, commentId });
+  });
 
   // Create notification for post author (if not self-comment)
   if (post.author_id !== req.user!.id) {

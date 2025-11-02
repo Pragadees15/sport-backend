@@ -3,6 +3,8 @@ import { supabase, supabaseAdmin } from '../config/supabase';
 import { authenticateToken } from '../middleware/auth';
 import { validate, validateQuery, validateParams } from '../middleware/validation';
 import { asyncHandler } from '../middleware/errorHandler';
+import { handleFollowGamification } from '../services/gamificationService';
+import { logger } from '../utils/logger';
 import Joi from 'joi';
 
 const router = express.Router();
@@ -349,6 +351,11 @@ router.post('/follow', authenticateToken, validate(followUserSchema), asyncHandl
   if (socketHandlers && notif) {
     socketHandlers.sendNotificationToUser(userId, notif);
   }
+
+  // Handle gamification (XP, achievements, quests)
+  handleFollowGamification(followerId, userId).catch(err => {
+    logger.error('Gamification error on follow', { error: err, userId: followerId, followingId: userId });
+  });
 
   res.json({
     success: true,
